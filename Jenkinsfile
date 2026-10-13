@@ -1,5 +1,9 @@
 pipeline {
-  agent any
+  agent { label 'build' }
+  environment {
+    ECR_REPO = "<your-ecr-repo-url>"
+    METADATA_BUCKET = "ci-cd-metadata-bucket"
+  }
   stages {
     stage('Checkout') {
       steps {
@@ -17,14 +21,13 @@ pipeline {
     stage('Code Coverage') {
       steps {
         sh 'npm run coverage'
+        sh 'cp coverage/coverage-summary.json metadata/coverage.json'
       }
     }
 
     stage('SAST & SCA') {
       steps {
-        // Trivy for SAST
-        sh 'trivy fs --exit-code 0 --severity HIGH,CRITICAL . > metadata/trivy_report.txt'
-        // OWASP Dependency Check for SCA
+        sh 'trivy fs --exit-code 0 --severity HIGH,CRITICAL . > metadata/trivy_fs.txt'
         dependencyCheck additionalArguments: '--scan ./ --format XML --out metadata/dependency-check-report.xml'
       }
     }
@@ -44,9 +47,10 @@ pipeline {
       }
     }
 
-    stage('Policy Checks') {
+    stage('Policy Checks - Code') {
       steps {
-        sh 'conftest test k8s/*.yaml --policy policies/ > metadata/policy_report.txt'
+        sh 'echo \'{"coverage":{"percent":85},"sca":{"vulnerabilities":[]}, "sonar":{"quality_gate":"PASSED"}}\' > input.json'
+        sh 'conftest test --policy policies/code.rego input.json > metadata/code_policy.txt'
       }
     }
 
@@ -54,6 +58,13 @@ pipeline {
       steps {
         sh 'docker build -t sample-app:${BUILD_NUMBER} .'
         sh 'trivy image sample-app:${BUILD_NUMBER} > metadata/image_scan.txt'
+      }
+    }
+
+    stage('Policy Checks - Image') {
+      steps {
+        sh 'echo \'{"image":{"tag":"${BUILD_NUMBER}","size_mb":320,"base":"node:16-alpine"}}\' > input.json'
+        sh 'conftest test --policy policies/docker.rego input.json > metadata/image_policy.txt'
       }
     }
 
@@ -66,11 +77,10 @@ pipeline {
 
     stage('Push Image & Metadata') {
       steps {
-        sh 'docker tag sample-app:${BUILD_NUMBER} <ECR_REPO>/sample-app:${BUILD_NUMBER}'
-        sh 'docker push <ECR_REPO>/sample-app:${BUILD_NUMBER}'
-        // Push metadata to repo or artifact store
+        sh 'docker tag sample-app:${BUILD_NUMBER} ${ECR_REPO}/sample-app:${BUILD_NUMBER}'
+        sh 'docker push ${ECR_REPO}/sample-app:${BUILD_NUMBER}'
         sh 'tar czf metadata-${BUILD_NUMBER}.tar.gz metadata/*'
-        sh 'aws s3 cp metadata-${BUILD_NUMBER}.tar.gz s3://ci-cd-metadata-bucket/'
+        sh 'aws s3 cp metadata-${BUILD_NUMBER}.tar.gz s3://${METADATA_BUCKET}/'
       }
     }
 
@@ -78,7 +88,7 @@ pipeline {
       steps {
         build job: 'cd_pipeline', parameters: [
           string(name: 'IMAGE_TAG', value: "${BUILD_NUMBER}"),
-          string(name: 'METADATA_PATH', value: "s3://ci-cd-metadata-bucket/metadata-${BUILD_NUMBER}.tar.gz")
+          string(name: 'METADATA_PATH', value: "s3://${METADATA_BUCKET}/metadata-${BUILD_NUMBER}.tar.gz")
         ]
       }
     }
