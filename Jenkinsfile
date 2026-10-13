@@ -13,13 +13,13 @@ pipeline {
 
         stage('OWASP Dependency Check') {
             steps {
-                dependencyCheck tool: 'DC-CLI',
-                                additionalArguments: '--scan . --format XML --out ./dependency-check-report.xml'
+                 dependencyCheck additionalArguments: '--scan . --format XML --out ./dependency-check-report.xml',
+                        odcInstallation: 'DC-CLI'   // must match the name you configured in Global Tool Config
             }
             post {
-                always {
-                    dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-                }
+        always {
+            dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+        }
             }
         }
 
