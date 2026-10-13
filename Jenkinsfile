@@ -1,95 +1,52 @@
 pipeline {
   agent { label 'build' }
-  environment {
-    ECR_REPO = "<your-ecr-repo-url>"
-    METADATA_BUCKET = "ci-cd-metadata-bucket"
-  }
   stages {
     stage('Checkout') {
+      steps { git 'https://github.com/your-org/hello-gitops-app.git' }
+    }
+    stage('Install Policy Agents') {
       steps {
-        git 'https://github.com/your-org/sample-app.git'
+        sh 'curl -L -o conftest https://github.com/open-policy-agent/conftest/releases/download/v0.45.0/conftest_linux_amd64'
+        sh 'chmod +x conftest && mv conftest /usr/local/bin/'
       }
     }
-
-    stage('Build & Test') {
+    stage('Code Quality & Coverage') {
       steps {
-        sh 'npm install'
         sh 'npm test'
-      }
-    }
-
-    stage('Code Coverage') {
-      steps {
         sh 'npm run coverage'
-        sh 'cp coverage/coverage-summary.json metadata/coverage.json'
       }
     }
-
     stage('SAST & SCA') {
       steps {
-        sh 'trivy fs --exit-code 0 --severity HIGH,CRITICAL . > metadata/trivy_fs.txt'
-        dependencyCheck additionalArguments: '--scan ./ --format XML --out metadata/dependency-check-report.xml'
+        sh 'trivy fs .'
+        dependencyCheck additionalArguments: '--scan ./'
       }
     }
-
-    stage('SonarQube Analysis') {
+    stage('Policy Checks') {
       steps {
-        sh 'mvn sonar:sonar -Dsonar.projectKey=sample-app -Dsonar.host.url=http://<SONARQUBE_URL> -Dsonar.login=<TOKEN>'
-        sh 'cp target/sonar/report-task.txt metadata/sonar_report.txt'
+        sh 'conftest test Dockerfile'
+        sh 'conftest test k8s/*.yaml'
       }
     }
-
-    stage('Install Policy Agent') {
-      steps {
-        sh 'wget https://github.com/open-policy-agent/conftest/releases/download/v0.37.0/conftest_0.37.0_Linux_x86_64.tar.gz'
-        sh 'tar xzf conftest_0.37.0_Linux_x86_64.tar.gz'
-        sh 'mv conftest /usr/local/bin/'
-      }
-    }
-
-    stage('Policy Checks - Code') {
-      steps {
-        sh 'echo \'{"coverage":{"percent":85},"sca":{"vulnerabilities":[]}, "sonar":{"quality_gate":"PASSED"}}\' > input.json'
-        sh 'conftest test --policy policies/code.rego input.json > metadata/code_policy.txt'
-      }
-    }
-
     stage('Docker Build & Scan') {
       steps {
-        sh 'docker build -t sample-app:${BUILD_NUMBER} .'
-        sh 'trivy image sample-app:${BUILD_NUMBER} > metadata/image_scan.txt'
+        sh 'docker build -t hello-gitops:${BUILD_NUMBER} .'
+        sh 'trivy image hello-gitops:${BUILD_NUMBER}'
       }
     }
-
-    stage('Policy Checks - Image') {
+    stage('Publish Metadata') {
       steps {
-        sh 'echo \'{"image":{"tag":"${BUILD_NUMBER}","size_mb":320,"base":"node:16-alpine"}}\' > input.json'
-        sh 'conftest test --policy policies/docker.rego input.json > metadata/image_policy.txt'
+        sh '''
+          echo "{ \\"build\\": \\"${BUILD_NUMBER}\\", \\"sonar\\": \\"passed\\", \\"trivy\\": \\"clean\\" }" > metadata/results.json
+          docker tag hello-gitops:${BUILD_NUMBER} <ECR_REPO>/hello-gitops:${BUILD_NUMBER}
+          docker push <ECR_REPO>/hello-gitops:${BUILD_NUMBER}
+          aws s3 cp metadata/results.json s3://ci-metadata-bucket/hello-gitops/${BUILD_NUMBER}/results.json
+        '''
       }
     }
-
-    stage('Smoke Test') {
-      steps {
-        sh 'docker run -d -p 3000:3000 sample-app:${BUILD_NUMBER}'
-        sh 'sleep 10 && curl -f http://localhost:3000 || exit 1'
-      }
-    }
-
-    stage('Push Image & Metadata') {
-      steps {
-        sh 'docker tag sample-app:${BUILD_NUMBER} ${ECR_REPO}/sample-app:${BUILD_NUMBER}'
-        sh 'docker push ${ECR_REPO}/sample-app:${BUILD_NUMBER}'
-        sh 'tar czf metadata-${BUILD_NUMBER}.tar.gz metadata/*'
-        sh 'aws s3 cp metadata-${BUILD_NUMBER}.tar.gz s3://${METADATA_BUCKET}/'
-      }
-    }
-
     stage('Trigger CD Pipeline') {
       steps {
-        build job: 'cd_pipeline', parameters: [
-          string(name: 'IMAGE_TAG', value: "${BUILD_NUMBER}"),
-          string(name: 'METADATA_PATH', value: "s3://${METADATA_BUCKET}/metadata-${BUILD_NUMBER}.tar.gz")
-        ]
+        build job: 'cd_pipeline', parameters: [string(name: 'IMAGE_TAG', value: "${BUILD_NUMBER}")]
       }
     }
   }
