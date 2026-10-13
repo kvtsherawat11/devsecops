@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-app-service
+  labels:
+    app: sample-app
+spec:
+  type: ClusterIP   # Use LoadBalancer if you want external access
+  selector:
+    app: sample-app
+  ports:
+    - protocol: TCP
+      port: 80        # Service port
+      targetPort: 3000 # Container port from your deployment
