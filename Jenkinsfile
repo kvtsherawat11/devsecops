@@ -13,6 +13,7 @@ pipeline {
 
         stage('OWASP Dependency Check') {
             steps {
+                dependencyCheck additionalArguments: '--updateonly'
                 dependencyCheck odcInstallation: 'DC-CLI',
                                 additionalArguments: '--scan . --format XML --out ./dependency-check-report.xml'
             }
