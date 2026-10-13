@@ -25,13 +25,6 @@ pipeline {
       }
     }
 
-    stage('Dependency Check') {
-    steps {
-        dependencyCheck additionalArguments: '--scan ./ --format XML --out metadata/dependency-check-report.xml',
-                        odcInstallation: 'DC-CLI'
-    }
-}
-
     stage('SAST & SCA') {
       steps {
         sh 'trivy fs --exit-code 0 --severity HIGH,CRITICAL . > metadata/trivy_fs.txt'
