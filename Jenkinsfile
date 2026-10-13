@@ -23,28 +23,50 @@ pipeline {
             }
         }
 
+        stage('SonarQube Analysis') {
+            steps {
+                script {
+                    def scannerHome = tool 'sonar-scanner'
+                    withSonarQubeEnv('Sonar') {
+                        sh """
+                            ${scannerHome}/bin/sonar-scanner \
+                            -Dsonar.projectKey=myapp \
+                            -Dsonar.sources=. \
+                            -Dsonar.host.url=http://<your-sonarqube-host>:9000 \
+                            -Dsonar.login=${SONAR_TOKEN}
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('SonarQube Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
         stage('Policy as Code Checks') {
             steps {
                 sh '''
                     curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
                     chmod +x opa
-                    ./opa test policies/
+                    ./opa test policies/ > policy-check-report.txt
                 '''
             }
         }
 
         stage('Docker Build') {
             steps {
-                // Adjust build context depending on where package.json lives
                 sh 'docker build -t myapp:latest -f app/Dockerfile .'
             }
         }
 
         stage('Smoke Test Container') {
             steps {
-                sh '''
-                    docker run --rm myapp:latest echo "Smoke test passed"
-                '''
+                sh 'docker run --rm myapp:latest echo "Smoke test passed"'
             }
         }
 
@@ -58,6 +80,20 @@ pipeline {
                         docker push <your-account-id>.dkr.ecr.ap-south-1.amazonaws.com/myapp:latest
                     '''
                 }
+            }
+        }
+
+        stage('Publish Metadata') {
+            steps {
+                sh '''
+                    echo "Collecting scan results into metadata.json"
+                    jq -n \
+                      --arg depCheck "$(cat dependency-check-report.xml)" \
+                      --arg sonar "SonarQube results available in server dashboard" \
+                      --arg policy "$(cat policy-check-report.txt)" \
+                      '{dependencyCheck: $depCheck, sonarQube: $sonar, policyChecks: $policy}' > metadata.json
+                '''
+                archiveArtifacts artifacts: 'metadata.json', fingerprint: true
             }
         }
 
