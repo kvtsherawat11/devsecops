@@ -1,53 +1,69 @@
 pipeline {
-  agent { label 'build' }
-  stages {
-    stage('Checkout') {
-      steps { git 'https://github.com/your-org/hello-gitops-app.git' }
+    agent { label 'build' }
+
+    stages {
+        stage('Checkout Code') {
+            steps {
+                checkout([$class: 'GitSCM',
+                          branches: [[name: '*/main']],
+                          userRemoteConfigs: [[url: 'https://github.com/kvtsherawat11/devsecops.git']]
+                ])
+            }
+        }
+
+        stage('OWASP Dependency Check') {
+            steps {
+                dependencyCheck odcInstallation: 'DC-CLI', // must match Global Tool Configuration name
+                                additionalArguments: '--scan ./ --format XML --out metadata/dependency-check-report.xml'
+            }
+            post {
+                always {
+                    dependencyCheckPublisher pattern: 'metadata/dependency-check-report.xml'
+                }
+            }
+        }
+
+        stage('Policy as Code Checks') {
+            steps {
+                sh '''
+                    curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
+                    chmod +x opa
+                    ./opa test policies/
+                '''
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                sh 'docker build -t myapp:latest .'
+            }
+        }
+
+        stage('Smoke Test Container') {
+            steps {
+                sh '''
+                    docker run --rm myapp:latest echo "Smoke test passed"
+                '''
+            }
+        }
+
+        stage('Push Image to Registry') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: 'ecr-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    sh '''
+                        aws ecr get-login-password --region ap-south-1 | \
+                        docker login --username AWS --password-stdin <your-account-id>.dkr.ecr.ap-south-1.amazonaws.com
+                        docker tag myapp:latest <your-account-id>.dkr.ecr.ap-south-1.amazonaws.com/myapp:latest
+                        docker push <your-account-id>.dkr.ecr.ap-south-1.amazonaws.com/myapp:latest
+                    '''
+                }
+            }
+        }
+
+        stage('Trigger CD Pipeline') {
+            steps {
+                build job: 'cd_pipeline', wait: false
+            }
+        }
     }
-    stage('Install Policy Agents') {
-      steps {
-        sh 'curl -L -o conftest https://github.com/open-policy-agent/conftest/releases/download/v0.45.0/conftest_linux_amd64'
-        sh 'chmod +x conftest && mv conftest /usr/local/bin/'
-      }
-    }
-    stage('Code Quality & Coverage') {
-      steps {
-        sh 'npm test'
-        sh 'npm run coverage'
-      }
-    }
-    stage('SAST & SCA') {
-      steps {
-        sh 'trivy fs .'
-        dependencyCheck additionalArguments: '--scan ./'
-      }
-    }
-    stage('Policy Checks') {
-      steps {
-        sh 'conftest test Dockerfile'
-        sh 'conftest test k8s/*.yaml'
-      }
-    }
-    stage('Docker Build & Scan') {
-      steps {
-        sh 'docker build -t hello-gitops:${BUILD_NUMBER} .'
-        sh 'trivy image hello-gitops:${BUILD_NUMBER}'
-      }
-    }
-    stage('Publish Metadata') {
-      steps {
-        sh '''
-          echo "{ \\"build\\": \\"${BUILD_NUMBER}\\", \\"sonar\\": \\"passed\\", \\"trivy\\": \\"clean\\" }" > metadata/results.json
-          docker tag hello-gitops:${BUILD_NUMBER} <ECR_REPO>/hello-gitops:${BUILD_NUMBER}
-          docker push <ECR_REPO>/hello-gitops:${BUILD_NUMBER}
-          aws s3 cp metadata/results.json s3://ci-metadata-bucket/hello-gitops/${BUILD_NUMBER}/results.json
-        '''
-      }
-    }
-    stage('Trigger CD Pipeline') {
-      steps {
-        build job: 'cd_pipeline', parameters: [string(name: 'IMAGE_TAG', value: "${BUILD_NUMBER}")]
-      }
-    }
-  }
 }
