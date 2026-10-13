@@ -1,6 +1,6 @@
 package docker.security
 
-deny[msg] {
+deny[msg] if {
   input.instruction == "USER"
   input.value == "root"
   msg = "Dockerfile must not run as root"
