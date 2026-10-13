@@ -3,5 +3,5 @@ package kubernetes.security
 deny[msg] {
   input.kind == "Deployment"
   not input.spec.template.spec.securityContext.runAsNonRoot
-  msg = "Containers must run as non-root"
+  msg = "Kubernetes deployments must run as non-root"
 }
