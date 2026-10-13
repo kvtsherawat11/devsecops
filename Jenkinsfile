@@ -13,7 +13,10 @@ pipeline {
 
         stage('OWASP Dependency Check') {
             steps {
+                // First update the DB
                 dependencyCheck additionalArguments: '--updateonly'
+
+                // Then run the actual scan
                 dependencyCheck odcInstallation: 'DC-CLI',
                                 additionalArguments: '--scan . --format XML --out ./dependency-check-report.xml'
             }
@@ -36,6 +39,7 @@ pipeline {
 
         stage('Docker Build') {
             steps {
+                // Adjusted to build from app/ with its Dockerfile
                 sh 'docker build -t myapp:latest -f app/Dockerfile app/'
             }
         }
