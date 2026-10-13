@@ -13,13 +13,8 @@ pipeline {
 
         stage('OWASP Dependency Check') {
             steps {
-                // Update DB first
                 dependencyCheck odcInstallation: 'DC-CLI',
-                                additionalArguments: '--updateonly'
-
-                // Then run the actual scan
-                dependencyCheck odcInstallation: 'DC-CLI',
-                                additionalArguments: '--scan . --format XML --out ./dependency-check-report.xml'
+                                additionalArguments: '--scan . --format XML --out ./dependency-check-report.xml --data /var/jenkins_home/dependency-check-data'
             }
             post {
                 always {
@@ -40,7 +35,8 @@ pipeline {
 
         stage('Docker Build') {
             steps {
-                sh 'docker build -t myapp:latest -f app/Dockerfile app/'
+                // Adjust build context depending on where package.json lives
+                sh 'docker build -t myapp:latest -f app/Dockerfile .'
             }
         }
 
