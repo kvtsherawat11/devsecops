@@ -13,8 +13,9 @@ pipeline {
 
         stage('OWASP Dependency Check') {
             steps {
-                // First update the DB
-                dependencyCheck additionalArguments: '--updateonly'
+                // Update DB first
+                dependencyCheck odcInstallation: 'DC-CLI',
+                                additionalArguments: '--updateonly'
 
                 // Then run the actual scan
                 dependencyCheck odcInstallation: 'DC-CLI',
@@ -39,7 +40,6 @@ pipeline {
 
         stage('Docker Build') {
             steps {
-                // Adjusted to build from app/ with its Dockerfile
                 sh 'docker build -t myapp:latest -f app/Dockerfile app/'
             }
         }
