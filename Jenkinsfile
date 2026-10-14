@@ -13,9 +13,10 @@ pipeline {
 
         stage('OWASP Dependency Check') {
             steps {
+                // First run: omit --noupdate so DB is created
+                // Later runs: add --noupdate to avoid lock contention
                 dependencyCheck odcInstallation: 'DC-CLI',
-                                additionalArguments: '--scan . --format XML --out ./dependency-check-report.xml --noupdate --data ${WORKSPACE}/dependency-check-data'
-                            
+                                additionalArguments: '--scan . --format XML --out ./dependency-check-report.xml --data /var/jenkins_home/dependency-check-data'
             }
             post {
                 always {
@@ -27,15 +28,16 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 script {
-                    def scannerHome = tool 'sonar-scanner'
                     withSonarQubeEnv('Sonar') {
-                        sh """
-                            ${scannerHome}/bin/sonar-scanner \
-                            -Dsonar.projectKey=myapp \
-                            -Dsonar.sources=. \
-                            -Dsonar.host.url=http://ec2-18-237-173-189.us-west-2.compute.amazonaws.com:9000 \
-                            -Dsonar.login=${SONAR_TOKEN}
-                        """
+                        withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                            sh """
+                                sonar-scanner \
+                                -Dsonar.projectKey=myapp \
+                                -Dsonar.sources=. \
+                                -Dsonar.host.url=http://ec2-18-237-173-189.us-west-2.compute.amazonaws.com:9000 \
+                                -Dsonar.login=$SONAR_TOKEN
+                            """
+                        }
                     }
                 }
             }
@@ -95,12 +97,8 @@ pipeline {
                       '{dependencyCheck: $depCheck, sonarQube: $sonar, policyChecks: $policy}' > metadata.json
 
                     # Push metadata.json to same ECR registry
-                    tar -czf metadata.tar.gz metadata.json
-                    docker build -t myapp-metadata:latest - <<EOF
-                    FROM alpine:3.18
-                    COPY metadata.tar.gz /metadata.tar.gz
-                    EOF
-
+                    echo "FROM alpine:3.18\nCOPY metadata.json /metadata.json" > Dockerfile.metadata
+                    docker build -t myapp-metadata:latest -f Dockerfile.metadata .
                     docker tag myapp-metadata:latest <your-account-id>.dkr.ecr.ap-south-1.amazonaws.com/myapp-metadata:latest
                     docker push <your-account-id>.dkr.ecr.ap-south-1.amazonaws.com/myapp-metadata:latest
                 '''
