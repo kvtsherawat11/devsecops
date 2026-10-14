@@ -29,13 +29,13 @@ pipeline {
             steps {
                 script {
                     withSonarQubeEnv('Sonar') {
-                        withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                        withCredentials([string(credentialsId: 'Sonar', variable: 'SONAR')]) {
                             sh """
                                 sonar-scanner \
                                 -Dsonar.projectKey=myapp \
                                 -Dsonar.sources=. \
                                 -Dsonar.host.url=http://ec2-18-237-173-189.us-west-2.compute.amazonaws.com:9000 \
-                                -Dsonar.login=$SONAR_TOKEN
+                                -Dsonar.login=$SONAR
                             """
                         }
                     }
@@ -78,9 +78,9 @@ pipeline {
                 withCredentials([usernamePassword(credentialsId: 'ecr-creds', usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     sh '''
                         aws ecr get-login-password --region ap-south-1 | \
-                        docker login --username AWS --password-stdin <your-account-id>.dkr.ecr.ap-south-1.amazonaws.com
-                        docker tag myapp:latest <your-account-id>.dkr.ecr.ap-south-1.amazonaws.com/myapp:latest
-                        docker push <your-account-id>.dkr.ecr.ap-south-1.amazonaws.com/myapp:latest
+                        docker login --username AWS --password-stdin 054221783339.dkr.ecr.ap-south-1.amazonaws.com
+                        docker tag myapp:latest 054221783339.dkr.ecr.ap-south-1.amazonaws.com/myapp:latest
+                        docker push 054221783339.dkr.ecr.ap-south-1.amazonaws.com/myapp:latest
                     '''
                 }
             }
@@ -99,8 +99,8 @@ pipeline {
                     # Push metadata.json to same ECR registry
                     echo "FROM alpine:3.18\nCOPY metadata.json /metadata.json" > Dockerfile.metadata
                     docker build -t myapp-metadata:latest -f Dockerfile.metadata .
-                    docker tag myapp-metadata:latest <your-account-id>.dkr.ecr.ap-south-1.amazonaws.com/myapp-metadata:latest
-                    docker push <your-account-id>.dkr.ecr.ap-south-1.amazonaws.com/myapp-metadata:latest
+                    docker tag myapp-metadata:latest 054221783339.dkr.ecr.ap-south-1.amazonaws.com/myapp-metadata:latest
+                    docker push 054221783339.dkr.ecr.ap-south-1.amazonaws.com/myapp-metadata:latest
                 '''
                 archiveArtifacts artifacts: 'metadata.json', fingerprint: true
             }
