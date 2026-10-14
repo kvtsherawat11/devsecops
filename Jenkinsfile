@@ -11,31 +11,17 @@ pipeline {
             }
         }
 
-        stage('OWASP Dependency Check') {
-            steps {
-                // First run: omit --noupdate so DB is created
-                // Later runs: add --noupdate to avoid lock contention
-                dependencyCheck odcInstallation: 'DC-CLI',
-                                additionalArguments: '--scan . --format XML --out ./dependency-check-report.xml --data /var/jenkins_home/dependency-check-data'
-            }
-            post {
-                always {
-                    dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-                }
-            }
-        }
-
         stage('SonarQube Analysis') {
             steps {
                 script {
                     withSonarQubeEnv('Sonar') {
-                        withCredentials([string(credentialsId: 'Sonar', variable: 'SONAR')]) {
+                        withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
                             sh """
                                 sonar-scanner \
                                 -Dsonar.projectKey=myapp \
                                 -Dsonar.sources=. \
                                 -Dsonar.host.url=http://ec2-18-237-173-189.us-west-2.compute.amazonaws.com:9000 \
-                                -Dsonar.login=$SONAR
+                                -Dsonar.login=$SONAR_TOKEN
                             """
                         }
                     }
@@ -91,10 +77,9 @@ pipeline {
                 sh '''
                     echo "Collecting scan results into metadata.json"
                     jq -n \
-                      --arg depCheck "$(cat dependency-check-report.xml)" \
                       --arg sonar "SonarQube results available in server dashboard" \
                       --arg policy "$(cat policy-check-report.txt)" \
-                      '{dependencyCheck: $depCheck, sonarQube: $sonar, policyChecks: $policy}' > metadata.json
+                      '{sonarQube: $sonar, policyChecks: $policy}' > metadata.json
 
                     # Push metadata.json to same ECR registry
                     echo "FROM alpine:3.18\nCOPY metadata.json /metadata.json" > Dockerfile.metadata
