@@ -14,8 +14,8 @@ pipeline {
         stage('OWASP Dependency Check') {
             steps {
                 dependencyCheck odcInstallation: 'DC-CLI',
-                                additionalArguments: '--scan . --format XML --out ./dependency-check-report.xml --noupdate',
-                                dataDirectory: "${WORKSPACE}/dependency-check-data"
+                                additionalArguments: '--scan . --format XML --out ./dependency-check-report.xml --noupdate --data ${WORKSPACE}/dependency-check-data'
+                            
             }
             post {
                 always {
