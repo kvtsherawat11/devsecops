@@ -14,7 +14,8 @@ pipeline {
         stage('OWASP Dependency Check') {
             steps {
                 dependencyCheck odcInstallation: 'DC-CLI',
-                                additionalArguments: '--scan . --format XML --out ./dependency-check-report.xml --data /var/jenkins_home/dependency-check-data'
+                                additionalArguments: '--scan . --format XML --out ./dependency-check-report.xml --noupdate',
+                                dataDirectory: "${WORKSPACE}/dependency-check-data"
             }
             post {
                 always {
@@ -32,7 +33,7 @@ pipeline {
                             ${scannerHome}/bin/sonar-scanner \
                             -Dsonar.projectKey=myapp \
                             -Dsonar.sources=. \
-                            -Dsonar.host.url=http://<your-sonarqube-host>:9000 \
+                            -Dsonar.host.url=http://ec2-18-237-173-189.us-west-2.compute.amazonaws.com:9000 \
                             -Dsonar.login=${SONAR_TOKEN}
                         """
                     }
@@ -92,6 +93,16 @@ pipeline {
                       --arg sonar "SonarQube results available in server dashboard" \
                       --arg policy "$(cat policy-check-report.txt)" \
                       '{dependencyCheck: $depCheck, sonarQube: $sonar, policyChecks: $policy}' > metadata.json
+
+                    # Push metadata.json to same ECR registry
+                    tar -czf metadata.tar.gz metadata.json
+                    docker build -t myapp-metadata:latest - <<EOF
+                    FROM alpine:3.18
+                    COPY metadata.tar.gz /metadata.tar.gz
+                    EOF
+
+                    docker tag myapp-metadata:latest <your-account-id>.dkr.ecr.ap-south-1.amazonaws.com/myapp-metadata:latest
+                    docker push <your-account-id>.dkr.ecr.ap-south-1.amazonaws.com/myapp-metadata:latest
                 '''
                 archiveArtifacts artifacts: 'metadata.json', fingerprint: true
             }
